@@ -1,0 +1,9 @@
+pydantic>=2.6
+openai>=1.30          # used as the OpenAI-compatible client for NEAR AI Cloud + fallback
+daytona>=0.20         # sandbox eval runner (pip install daytona; import: from daytona import Daytona)
+apify-client>=1.7     # live trend ingestion (Instagram scraper actors)
+httpx>=0.27           # Insforge REST calls
+fastapi>=0.110        # dashboard (Person C/D decision)
+uvicorn>=0.29         # dashboard server
+python-dotenv>=1.0    # load .env
+# kalibr-sdk-python   # orchestration layer — add once hackathon access is confirmed (open decision #3)
