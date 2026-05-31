@@ -12,6 +12,7 @@ Owner: Person A (Eval & Worker).
 from __future__ import annotations
 
 import json
+import os
 import uuid
 
 from worker.prompts import build_prompt
@@ -20,6 +21,21 @@ from llm_client import complete
 
 # These imports only succeed once pydantic is installed; the worker is runtime code.
 from core.contracts import ContentDraft, Run
+
+# Set WORKER_LOG=1 to print every post the worker writes (the content + its score).
+WORKER_LOG = os.getenv("WORKER_LOG", "0") == "1"
+
+
+def _log_post(trend, prompt_version: str, draft, score: float, checks: dict) -> None:
+    failed = [name for name, ok in checks.items() if not ok]
+    print(f"\n[worker] prompt={prompt_version!r}  trend={trend.trend_label!r}  score={score:.2f}")
+    if draft is None:
+        print("         (unparseable output -> 0.00)")
+    else:
+        print(f"         hook    ({len(draft.hook)} chars): {draft.hook}")
+        print(f"         caption ({len(draft.caption)} chars): {draft.caption}")
+        print(f"         hashtags: {draft.hashtags}")
+    print(f"         FAILED: {failed or 'none'}")
 
 
 def _parse(raw: str) -> ContentDraft | None:
@@ -49,6 +65,8 @@ def run_worker(trend, brand, prompt_version: str) -> Run:
     raw = complete(prompt)                 # single model call, via the swappable client
     draft = _parse(raw)
     score, checks = score_output(draft, brand, trend)
+    if WORKER_LOG:
+        _log_post(trend, prompt_version, draft, score, checks)
     return Run(
         id=str(uuid.uuid4()),
         trend_id=trend.id,
