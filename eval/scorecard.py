@@ -86,21 +86,27 @@ CHECKS = [
 # is len(CHECKS) + 1. A parse failure scores 0/total (all checks counted as failed).
 
 
-def score_output(output, brand, trend) -> tuple[float, dict[str, bool]]:
+def score_output(output, brand, trend, *, extra_checks=None) -> tuple[float, dict[str, bool]]:
     """Returns (score in 0..1, {check_name: passed}).
 
     `output` may be None when the worker produced unparseable JSON; that scores
     0.0 with every check (including valid_output) marked False.
+
+    `extra_checks`: optional list of (name, fn) checks sharing the same
+    (output, brand, trend) -> bool signature as CHECKS. The capture kit folds
+    human-derived blueprint rules in here (capture/bridge.py) without touching the
+    frozen CHECKS list. Default None preserves the exact base behavior.
     """
-    total = len(CHECKS) + 1  # +1 for valid_output
+    all_checks = list(CHECKS) + list(extra_checks or [])
+    total = len(all_checks) + 1  # +1 for valid_output
 
     if output is None or not getattr(output, "hook", "") or not getattr(output, "caption", ""):
-        checks = {name: False for name, _ in CHECKS}
+        checks = {name: False for name, _ in all_checks}
         checks["valid_output"] = False
         return 0.0, checks
 
     checks: dict[str, bool] = {}
-    for name, fn in CHECKS:
+    for name, fn in all_checks:
         try:
             checks[name] = bool(fn(output, brand, trend))
         except Exception:

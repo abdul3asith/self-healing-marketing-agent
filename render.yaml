@@ -1,0 +1,61 @@
+# ============================================================================
+#  Render Blueprint — host the Self-Healing Marketing Agent API as a web service.
+#  Spec: https://render.com/docs/blueprint-spec
+#
+#  Deploy:
+#    1. Commit + push this file.
+#    2. Render Dashboard -> New -> Blueprint -> pick this repo -> Apply.
+#    3. Fill the secret env vars below (the ones marked `sync: false`) in the
+#       dashboard. With NO keys the service still boots in deterministic MOCK
+#       mode; add keys to turn integrations LIVE (verify at GET /health).
+#
+#  Notes:
+#    - The API is stateless per request, so the free plan (scale-to-zero) is fine.
+#    - Keep STORE_BACKEND=memory until the Insforge REST methods are implemented;
+#      multi-instance hosting would otherwise split the in-memory store.
+# ============================================================================
+services:
+  - type: web
+    name: self-healing-marketing-agent
+    runtime: python
+    plan: free
+    region: oregon
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn api:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /health
+    envVars:
+      # Pin a stable Python (local dev may be newer; adjust if Render lacks this patch).
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+
+      # --- storage: stay in-memory until InsforgeStore is wired ---------------
+      - key: STORE_BACKEND
+        value: memory
+      - key: CAPTURE_STORE_BACKEND
+        value: memory
+
+      # --- model provider (NEAR AI Cloud) -------------------------------------
+      # Leave NEAR_AI_API_KEY unset to run in MOCK mode. Set it in the dashboard
+      # to go live; the base URL is safe to commit (it's not a secret).
+      - key: NEAR_AI_BASE_URL
+        value: https://cloud-api.near.ai/v1
+      - key: NEAR_AI_API_KEY
+        sync: false
+      - key: LLM_FALLBACK_API_KEY
+        sync: false
+
+      # --- integrations (set in dashboard to go live) -------------------------
+      - key: APIFY_TOKEN
+        sync: false
+      - key: DAYTONA_API_KEY
+        sync: false
+      - key: KALIBR_BASE_URL
+        value: https://kalibr-intelligence.fly.dev
+      - key: KALIBR_API_KEY
+        sync: false
+      - key: KALIBR_TENANT_ID
+        sync: false
+      - key: INSFORGE_BASE_URL
+        sync: false
+      - key: INSFORGE_API_KEY
+        sync: false

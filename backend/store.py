@@ -21,6 +21,7 @@ Pick with STORE_BACKEND=insforge|memory (default memory).
 from __future__ import annotations
 
 import os
+import sys
 from collections import deque
 
 
@@ -127,7 +128,13 @@ class InsforgeStore:
 
 
 def get_store():
-    backend = os.getenv("STORE_BACKEND", "memory")
+    """In-memory by default so the loop runs locally with zero setup. If STORE_BACKEND=
+    insforge but the backend can't be constructed (e.g. missing INSFORGE_* creds locally),
+    fall back to memory with a warning instead of crashing — local should always work."""
+    backend = os.getenv("STORE_BACKEND", "memory").lower()
     if backend == "insforge":
-        return InsforgeStore()
+        try:
+            return InsforgeStore()
+        except Exception as e:
+            print(f"[backend.store] insforge unavailable ({e}); using in-memory store.", file=sys.stderr)
     return MemoryStore()
