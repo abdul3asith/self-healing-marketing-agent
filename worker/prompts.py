@@ -39,6 +39,18 @@ Make it catchy. Return it as JSON with a hook, caption, and hashtags.
 #   violates the content rules -> ~0.4.
 
 
+def _safe_format(template: str, fields: dict) -> str:
+    """Substitute only our known {placeholders}, leaving every other brace literal.
+
+    LLM-generated candidate prompts contain unescaped JSON examples like
+    {"hook": "..."} that would make str.format() raise KeyError. A plain per-key
+    replace injects our fields without choking on those literal braces."""
+    out = template
+    for key, value in fields.items():
+        out = out.replace("{" + key + "}", str(value))
+    return out
+
+
 def build_prompt(prompt_version: str, trend, brand) -> str:
     """prompt_version: 'good' | 'degraded' | a promoted fix prompt is passed as raw text.
     For promoted fixes the orchestrator stores the full candidate prompt string and
@@ -53,10 +65,10 @@ def build_prompt(prompt_version: str, trend, brand) -> str:
         voice_note=brand.voice_note,
     )
     if prompt_version == "good":
-        template = GOOD_PROMPT
+        # Authored template: braces in the JSON example are escaped ({{ }}), so .format works.
+        return GOOD_PROMPT.format(**fields)
     elif prompt_version == "degraded":
-        template = DEGRADED_PROMPT
+        return DEGRADED_PROMPT.format(**fields)
     else:
-        # A promoted candidate prompt (raw template text from generate.py).
-        template = prompt_version
-    return template.format(**fields)
+        # A promoted candidate prompt (raw, unescaped LLM text from generate.py).
+        return _safe_format(prompt_version, fields)

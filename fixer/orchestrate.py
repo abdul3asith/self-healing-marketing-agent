@@ -21,7 +21,6 @@ from fixer.detect import detect_drop, THRESHOLD, rolling_avg
 from fixer.diagnose import diagnose
 from fixer.generate import generate
 from fixer.validate import validate_in_daytona
-from llm_client import get_attestation
 
 MAX_RETRIES = 3
 
@@ -58,17 +57,15 @@ def attempt_self_heal(store, *, force_first_fail: bool = True) -> dict:
             "candidate_prompt": candidate,
             "sandbox_score": sandbox_score,
             "promoted": False,
-            "attestation": None,
         })
         timeline.append({"attempt": attempt, "sandbox_score": sandbox_score,
                          "sandboxed": result.get("sandboxed"), "weak": weak})
 
         if sandbox_score > current_score and sandbox_score >= THRESHOLD:
             store.promote(candidate)                      # update live prompt_version
-            attestation = get_attestation(fix["id"])      # NEAR AI attestation (stretch)
-            store.mark_promoted(fix["id"], attestation=attestation)
+            store.mark_promoted(fix["id"])
             return {"detected": True, "promoted": True, "attempts": timeline,
-                    "promoted_score": sandbox_score, "attestation": attestation}
+                    "promoted_score": sandbox_score}
         # else: discard, try a different hypothesis (the visible fail-then-recover)
 
     return {"detected": True, "promoted": False, "attempts": timeline}

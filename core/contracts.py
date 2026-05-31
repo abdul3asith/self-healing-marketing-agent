@@ -87,5 +87,4 @@ class FixAttempt(BaseModel):
     candidate_prompt: str         # generate() output
     sandbox_score: float          # score on the eval set inside Daytona
     promoted: bool                # True only if sandbox_score beats current AND >= threshold
-    attestation: Optional[str] = None        # NEAR AI attestation ref, if available
     ts: datetime = Field(default_factory=datetime.utcnow)

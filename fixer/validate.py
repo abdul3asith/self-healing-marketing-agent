@@ -59,14 +59,14 @@ def validate_in_daytona(candidate_prompt: str) -> dict:
     sandbox = daytona.create()  # default python runtime, <90ms
     try:
         # TODO(Person C): upload the project (worker/, eval/, llm_client.py, core/)
-        # into the sandbox filesystem, plus the candidate's NEAR_AI_API_KEY env.
+        # into the sandbox filesystem, plus the candidate's OPENAI_API_KEY env.
         # e.g. sandbox.fs.upload_files(...) then run the runner below.
         sandbox.fs.create_folder("/home/daytona/app")  # placeholder path
         sandbox.fs.upload_file(_SANDBOX_RUNNER.encode(), "/home/daytona/app/_runner.py")
         resp = sandbox.process.exec(
             'cd /home/daytona/app && echo $PAYLOAD | python _runner.py',
             env={"PAYLOAD": json.dumps({"candidate_prompt": candidate_prompt}),
-                 "NEAR_AI_API_KEY": os.getenv("NEAR_AI_API_KEY", "")},
+                 "OPENAI_API_KEY": os.getenv("OPENAI_API_KEY", "")},
         )
         result = json.loads(resp.result)
         result["sandboxed"] = True

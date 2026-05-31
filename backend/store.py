@@ -60,11 +60,10 @@ class MemoryStore:
         self._fix_attempts.append(data)
         return data
 
-    def mark_promoted(self, fix_id: str, attestation=None):
+    def mark_promoted(self, fix_id: str):
         for f in self._fix_attempts:
             if f["id"] == fix_id:
                 f["promoted"] = True
-                f["attestation"] = attestation
 
     def fix_attempts(self):
         return list(self._fix_attempts)
@@ -118,7 +117,7 @@ class InsforgeStore:
     def all_runs(self): raise NotImplementedError
     def save_detection(self, data): raise NotImplementedError
     def save_fix_attempt(self, data): raise NotImplementedError
-    def mark_promoted(self, fix_id, attestation=None): raise NotImplementedError
+    def mark_promoted(self, fix_id): raise NotImplementedError
     def fix_attempts(self): raise NotImplementedError
     def detections(self): raise NotImplementedError
     def get_live_prompt(self): raise NotImplementedError

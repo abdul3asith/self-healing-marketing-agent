@@ -7,17 +7,23 @@ DEMO DRIVER  —  the section-9 sequence, end to end, deterministically.
   4. FIRST candidate fails the sandbox eval -> discarded   <-- the money moment
   5. SECOND candidate passes the sandbox -> promoted live
   6. worker score recovers to ~1.0 (green), no human touched it
-  7. show the audit trail + NEAR AI attestation on the promoted fix
+  7. show the audit trail on the promoted fix
 
 Owner: lead / Person D.
 
-Run: python demo.py   (uses MemoryStore + needs NEAR_AI_API_KEY or LLM_FALLBACK_API_KEY,
-or DAYTONA_STUB=1 to keep validation local). Trigger from the dashboard button too.
+Run: python demo.py   (uses MemoryStore + needs OPENAI_API_KEY; set DAYTONA_STUB=1 to
+keep validation local). Trigger from the dashboard button too.
 """
 
 from __future__ import annotations
 
 import itertools
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()                  # load .env so OPENAI_API_KEY etc. are available
+except ImportError:
+    pass                           # dotenv optional; env vars can be exported instead
 
 from backend.store import get_store
 from worker.agent import run_worker
@@ -51,7 +57,7 @@ def main():
     for a in result.get("attempts", []):
         verdict = "PROMOTED" if a["sandbox_score"] >= 0.8 and a is result["attempts"][-1] and result["promoted"] else "discarded"
         print(f"   attempt {a['attempt']}: sandbox_score={a['sandbox_score']:.2f} -> {verdict}")
-    print(f"   promoted={result.get('promoted')} attestation={result.get('attestation')}\n")
+    print(f"   promoted={result.get('promoted')}\n")
 
     print("6) Worker after promotion")
     print(f"   rolling avg = {_batch(store):.2f}  (expect ~1.0, recovered)\n")
