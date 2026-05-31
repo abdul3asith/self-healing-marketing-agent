@@ -23,6 +23,8 @@ from backend.store import get_store
 from worker.agent import run_worker
 from fixer.detect import rolling_avg
 from fixer.orchestrate import attempt_self_heal
+from fixer.runstep import register_default_paths
+from integrations.kalibr import get_kalibr
 from eval.trends import EVAL_TRENDS, BRAND_PROFILE
 
 
@@ -38,6 +40,7 @@ def _batch(store, n=10):
 
 def main():
     store = get_store()  # starts on the "good" prompt
+    register_default_paths()  # Kalibr only routes to registered NEAR-backed paths
 
     print("1) Healthy worker (GOOD prompt)")
     print(f"   rolling avg = {_batch(store):.2f}  (expect ~1.0, green)\n")
@@ -59,6 +62,14 @@ def main():
     print("7) Audit trail")
     print(f"   runs={len(store.all_runs())} detections={len(store.detections())} "
           f"fix_attempts={len(store.fix_attempts())}")
+
+    print("\n8) Kalibr routing intelligence (the model-level self-healing layer)")
+    kalibr = get_kalibr()
+    for goal in ("outreach_generation", "summarization", "research"):
+        s = kalibr.stats(goal)
+        ins = kalibr.insights(goal)
+        print(f"   {goal:20s} success_rate={s['success_rate']:.2f} "
+              f"attempts={s['attempts']:3d} status={ins['status']} trend={ins['trend']}")
 
 
 if __name__ == "__main__":

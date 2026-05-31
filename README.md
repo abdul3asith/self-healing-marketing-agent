@@ -18,6 +18,39 @@ actually improves** — otherwise discards and retries. Then it goes back to wat
 
 ---
 
+## Two self-healing layers (this build)
+
+The repo now runs **two complementary** self-healing layers:
+
+| Layer | Heals by | Fires when | Module |
+|---|---|---|---|
+| **Model-level** (Kalibr + NEAR multi-model) | rerouting to another NEAR model and retrying | a step fails its **Gate-1** contract (empty/malformed/refusal) or the model is **down** | `fixer/runstep.py` |
+| **Prompt-level** (Daytona) | diagnosing + sandbox-validating a new **prompt** | the scorecard **rolling avg** drops below threshold | `fixer/orchestrate.py` |
+
+Every LLM call (`worker.agent`, `fixer.diagnose`, `fixer.generate`) flows through
+`run_step(goal, messages, eval_fn)`: it asks **Kalibr** (decoupled *Intelligence API*
+mode) which NEAR model to use, executes on **NEAR AI** private inference, validates the
+output against a **Gate-1** contract (`eval/gate1.py`), and on failure asks Kalibr for
+the next-best model (the *heal*) while reporting every outcome back (the *learning*).
+
+**The boundary that makes it work:** Gate-1 grades output *usability*, never brand
+*quality*. A vague prompt still yields valid-shaped output, so it passes Gate-1 and is
+left for the scorecard + Daytona fixer — model-healing never masks the degradation the
+prompt-fixer is built to detect.
+
+### New modules & integrations
+- `integrations/kalibr.py` — Kalibr Intelligence API REST client (register / decide / get-alternative / report-outcome / insights / stats) + offline mock.
+- `integrations/apify.py` — Facebook posts scraper (`apify~facebook-posts-scraper`, sync endpoint) + normalizer + mock. The **Discover** step (live stream only — never the frozen eval set).
+- `eval/gate1.py` — per-goal Gate-1 usability contracts (summarization / research / outreach_generation / web_scraping).
+- `fixer/runstep.py` — the model-level self-healing orchestrator (`run_step`, `register_default_paths`).
+- `llm_client.py` — now multi-model (Qwen / DeepSeek / GLM) with a Kalibr path→slug map and a zero-key offline mock.
+
+**Everything mock-falls-back**: with no keys set, `python demo.py` runs fully offline
+and deterministically. To *show* a model-level heal offline, set
+`NEAR_AI_CHAOS=near-qwen3.5` so that model "goes down" and Kalibr reroutes to DeepSeek.
+
+---
+
 ## The one idea that matters
 
 The **scorecard** (`eval/scorecard.py`) is three things at once:

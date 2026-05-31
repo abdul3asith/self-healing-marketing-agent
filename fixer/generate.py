@@ -10,7 +10,8 @@ Owner: Person B (Fixer reasoning).
 
 from __future__ import annotations
 
-from llm_client import complete
+from fixer.runstep import run_step
+from eval.gate1 import candidate_prompt
 
 _REQUIRED_FIELDS = "{niche} {trend_label} {trend_keyword} {required_cta} {required_hashtag} {banned_words} {voice_note}"
 
@@ -35,6 +36,8 @@ Rewrite it into an improved prompt that fixes the problem. The new prompt MUST:
   return strict JSON {{"hook","caption","hashtags"}}).
 
 Return ONLY the new prompt template text. No commentary, no code fences."""
-    candidate = complete(prompt, temperature=0.4).strip()
+    step = run_step("research", [{"role": "user", "content": prompt}],
+                    candidate_prompt, temperature=0.4, max_tokens=800)
+    candidate = step.output.strip()
     # Strip accidental fences.
     return candidate.removeprefix("```").removesuffix("```").strip()

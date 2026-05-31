@@ -13,7 +13,8 @@ the sandbox. The second pass uses the full hypothesis.
 
 from __future__ import annotations
 
-from llm_client import complete
+from fixer.runstep import run_step
+from eval.gate1 import summarization
 
 
 def _summarize_failures(failing_runs) -> str:
@@ -46,4 +47,7 @@ This is the prompt currently driving the agent:
 
 Diagnose the root cause. {detail}
 Respond with the hypothesis only, no preamble."""
-    return complete(prompt, temperature=0.3 if not weak else 0.9).strip()
+    temperature = 0.9 if weak else 0.3
+    step = run_step("summarization", [{"role": "user", "content": prompt}],
+                    summarization, temperature=temperature)
+    return step.output.strip()

@@ -16,7 +16,8 @@ import uuid
 
 from worker.prompts import build_prompt
 from eval.scorecard import score_output
-from llm_client import complete
+from eval.gate1 import content_draft
+from fixer.runstep import run_step
 
 # These imports only succeed once pydantic is installed; the worker is runtime code.
 from core.contracts import ContentDraft, Run
@@ -39,15 +40,22 @@ def _parse(raw: str) -> ContentDraft | None:
         return None
 
 
-def run_worker(trend, brand, prompt_version: str) -> Run:
+def run_worker(trend, brand, prompt_version: str, *, on_event=None) -> Run:
     """Generate one post and return a fully scored Run.
 
     prompt_version is read from the store at the call site so the demo can flip
     'good' -> 'degraded' (and later a promoted fix) at runtime.
+
+    The single model call now flows through run_step (Kalibr goal
+    'outreach_generation'), so a down/garbled model self-heals across NEAR models
+    before we ever score it. Gate-1 (content_draft) checks output USABILITY only —
+    the brand scorecard below stays the source of truth for quality and remains the
+    signal the fixer's drop detector watches.
     """
     prompt = build_prompt(prompt_version, trend, brand)
-    raw = complete(prompt)                 # single model call, via the swappable client
-    draft = _parse(raw)
+    step = run_step("outreach_generation", [{"role": "user", "content": prompt}],
+                    content_draft, on_event=on_event)
+    draft = _parse(step.output)
     score, checks = score_output(draft, brand, trend)
     return Run(
         id=str(uuid.uuid4()),

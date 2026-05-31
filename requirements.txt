@@ -6,4 +6,6 @@ httpx>=0.27           # Insforge REST calls
 fastapi>=0.110        # dashboard (Person C/D decision)
 uvicorn>=0.29         # dashboard server
 python-dotenv>=1.0    # load .env
-# kalibr-sdk-python   # orchestration layer — add once hackathon access is confirmed (open decision #3)
+# Kalibr Intelligence API + Apify are called over REST via httpx (above) — no extra SDK.
+# Use the decoupled REST mode, NOT kalibr-sdk-python: the SDK monkeypatches OpenAI/
+# Anthropic at import (import kalibr must be first) and won't cleanly wrap NEAR AI.
