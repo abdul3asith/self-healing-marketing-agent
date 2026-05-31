@@ -19,12 +19,20 @@ from __future__ import annotations
 
 import itertools
 
+# Load .env before any module reads env vars (Apify/NEAR/Kalibr/etc all read at import).
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 from backend.store import get_store
 from worker.agent import run_worker
 from fixer.detect import rolling_avg
 from fixer.orchestrate import attempt_self_heal
 from fixer.runstep import register_default_paths
 from integrations.kalibr import get_kalibr
+from integrations.apify import facebook_trends, is_mock as apify_is_mock
 from eval.trends import EVAL_TRENDS, BRAND_PROFILE
 
 
@@ -38,9 +46,39 @@ def _batch(store, n=10):
     return rolling_avg(store.recent_runs(limit=n))
 
 
+def _show_natgeo_trends(limit: int = 5) -> None:
+    """Discover step: pull live trending posts from National Geographic via Apify."""
+    mode = "MOCK" if apify_is_mock() else "LIVE"
+    print(f"0) Apify Discover  —  scraping National Geographic Facebook ({mode})")
+    try:
+        posts = facebook_trends(
+            page_urls=["https://www.facebook.com/natgeo"],
+            results_limit=limit,
+        )
+    except Exception as e:
+        print(f"   ⚠️  Apify scrape failed: {e}\n")
+        return
+
+    if not posts:
+        print("   (no posts returned)\n")
+        return
+
+    for i, p in enumerate(posts, 1):
+        text = (p.get("text") or "").replace("\n", " ").strip()
+        if len(text) > 90:
+            text = text[:87] + "..."
+        engagement = p.get("reactions", 0) + p.get("comments", 0) + p.get("shares", 0)
+        print(f"   {i}. [{p.get('pageName','?')}] {text}")
+        print(f"      ❤ {p.get('reactions',0):>6} 💬 {p.get('comments',0):>4} "
+              f"🔁 {p.get('shares',0):>4}  (engagement={engagement})")
+    print()
+
+
 def main():
     store = get_store()  # starts on the "good" prompt
     register_default_paths()  # Kalibr only routes to registered NEAR-backed paths
+
+    _show_natgeo_trends()
 
     print("1) Healthy worker (GOOD prompt)")
     print(f"   rolling avg = {_batch(store):.2f}  (expect ~1.0, green)\n")
@@ -66,10 +104,18 @@ def main():
     print("\n8) Kalibr routing intelligence (the model-level self-healing layer)")
     kalibr = get_kalibr()
     for goal in ("outreach_generation", "summarization", "research"):
-        s = kalibr.stats(goal)
-        ins = kalibr.insights(goal)
-        print(f"   {goal:20s} success_rate={s['success_rate']:.2f} "
-              f"attempts={s['attempts']:3d} status={ins['status']} trend={ins['trend']}")
+        try:
+            s = kalibr.stats(goal) or {}
+            ins = kalibr.insights(goal) or {}
+        except Exception as e:
+            print(f"   {goal:20s} (kalibr unavailable: {e})")
+            continue
+        rate = s.get("success_rate", ins.get("success_rate", 0.0)) or 0.0
+        attempts = s.get("attempts", s.get("total_attempts", 0)) or 0
+        status = ins.get("status", "unknown")
+        trend = ins.get("trend", "n/a")
+        print(f"   {goal:20s} success_rate={float(rate):.2f} "
+              f"attempts={int(attempts):3d} status={status} trend={trend}")
 
 
 if __name__ == "__main__":

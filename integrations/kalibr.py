@@ -92,12 +92,17 @@ class KalibrClient:
             return {"path_id": f"mock-path::{goal}::{model_id}", "goal": goal, "model_id": model_id}
 
         r = self._client().post("/api/v1/routing/paths", json={"goal": goal, "model_id": model_id})
-        r.raise_for_status()
+        # 409 Conflict = path already registered on Kalibr -> idempotent success.
+        if r.status_code != 409:
+            r.raise_for_status()
         # mirror locally so get_alternative ordering works even against real Kalibr
         self._paths.setdefault(goal, [])
         if model_id not in self._paths[goal]:
             self._paths[goal].append(model_id)
-        return r.json()
+        try:
+            return r.json()
+        except Exception:
+            return {"goal": goal, "model_id": model_id, "status": r.status_code}
 
     def register_paths(self, goal_to_models: dict[str, list[str]]) -> None:
         """Bulk-register at startup, e.g. {"summarization": ["near-qwen3.5", ...], ...}."""

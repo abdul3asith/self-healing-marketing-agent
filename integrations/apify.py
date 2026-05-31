@@ -32,8 +32,7 @@ APIFY_BASE = "https://api.apify.com/v2"
 
 # Default seed pages to scrape when the caller doesn't supply its own actor input.
 DEFAULT_PAGE_URLS = [
-    "https://www.facebook.com/Sephora",
-    "https://www.facebook.com/glossier",
+    "https://www.facebook.com/natgeo",
 ]
 
 NORMALIZED_FIELDS = ("text", "reactions", "comments", "shares", "url", "time", "pageName")
