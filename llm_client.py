@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import re
 
 NEAR_AI_BASE_URL = os.getenv("NEAR_AI_BASE_URL", "https://cloud-api.near.ai/v1")
@@ -139,12 +140,24 @@ def complete(prompt: str, *, system: str = "", temperature: float = 0.7,
 
 
 # ---------------------------------------------------------------------------
-# OFFLINE MOCK  —  deterministic, demo-coherent output when no keys are set.
-# It is prompt-aware enough that a GOOD prompt (which enumerates the rules)
-# yields a compliant draft (~1.0) while a vague DEGRADED prompt yields a sloppy
-# one (~0.4) — so detection + heal + recovery all run offline. The fail-then-
-# recover *drama* still needs a real model (the mock recovers on attempt 0).
+# OFFLINE ENGINE  —  a small, NONDETERMINISTIC generator that stands in for a
+# real model when no keys are set, so the whole demo is live-feeling with zero
+# network. Design guarantees that keep the demo coherent:
+#   * GOOD prompt (enumerates the rules) -> every call yields a DIFFERENT but
+#     fully rule-compliant post (~1.0). Wording varies; compliance does not.
+#   * DEGRADED prompt (vague)            -> a DIFFERENT sloppy "right shape,
+#     wrong content" post each call (~0.4) so the drop is real and legible.
+#   * The fixer's first (weak) hypothesis yields a candidate prompt that STILL
+#     scores low in the sandbox -> discarded; the second (full) hypothesis
+#     yields a compliant template -> promoted. That fail-then-recover drama now
+#     runs OFFLINE too (no real key required).
+# Set MOCK_SEED to make a run reproducible; otherwise it's fresh every call.
 # ---------------------------------------------------------------------------
+_MOCK_SEED = os.getenv("MOCK_SEED")
+_rng = random.Random(int(_MOCK_SEED)) if _MOCK_SEED and _MOCK_SEED.isdigit() else random.Random()
+
+# A full-rules template (what a GOOD fix looks like): _mock_content sees the word
+# "verbatim" + the rule list and produces a compliant, varied draft.
 _MOCK_FIX_TEMPLATE = '''You are a social content writer for a {niche} brand.
 Write ONE Instagram post about the trend "{trend_label}". Follow every rule:
 1. Hook at most 60 characters.
@@ -156,45 +169,128 @@ Write ONE Instagram post about the trend "{trend_label}". Follow every rule:
 7. Return ONLY valid JSON: {{"hook": "...", "caption": "...", "hashtags": ["#a", "#b", "#c"]}}
 Voice: {voice_note}'''
 
+# A deliberately WEAK candidate (what the shallow first hypothesis produces): a
+# valid, formattable template (passes Gate-1) that still omits the hard rules, so
+# the sandbox scores it low and it gets discarded -> the visible fail-then-recover.
+_MOCK_WEAK_FIX_TEMPLATE = (
+    'Write a catchy, fun Instagram post for a {niche} brand about the trend '
+    '"{trend_label}". Keep it engaging and add a few hashtags. '
+    'Return it as JSON with a hook, caption, and hashtags.'
+)
+
+# Wording pools for the COMPLIANT path. Hooks/captions are trimmed to the limits
+# and always carry the keyword (hook) + verbatim CTA (caption), so compliance is
+# guaranteed by construction while the phrasing changes every call.
+_HOOK_PHRASES = [
+    "the {niche} edit", "my honest glow", "saving this one", "the only step that matters",
+    "soft-life energy", "low-effort, high-payoff", "the ritual I swear by",
+    "this changed my week", "tiny habit, big difference", "the calm-skin routine",
+]
+_CAPTION_TAILS = [
+    "Real steps, no fuss, just glow.", "Three minutes, every morning.",
+    "Gentle wins over harsh, always.", "Your skin will thank you later.",
+    "Small ritual, steady results.", "Made for busy, beautiful days.",
+    "Less product, more patience.", "The good-skin basics, simplified.",
+]
+_TAG_POOL = [
+    "#skincare", "#glowup", "#cleanbeauty", "#skintok", "#selfcare",
+    "#morningroutine", "#skincaretips", "#glowingskin", "#beautyroutine", "#softlife",
+]
+
+# Wording pools for the SLOPPY (degraded) path: valid JSON, but rule-breaking.
+_HYPE_HOOKS = [
+    "This amazing trend will totally change your whole entire routine forever and ever today",
+    "OMG you absolutely have to see this incredible viral trend everyone is obsessed with rn",
+    "The most insane life-changing hack that literally nobody is talking about but should be",
+    "Stop scrolling because this unbelievable trend is about to completely transform your day",
+]
+_HYPE_CAPTIONS = [
+    "We love this trend so much! You have to try it today, it is honestly the best thing ever.",
+    "Obsessed is an understatement, run don't walk, this is everything and then some, trust us.",
+    "Cannot stop thinking about this, it's a whole vibe and you deserve it, go go go right now.",
+]
+_HYPE_TAGS = [["#fun", "#love"], ["#viral", "#trend"], ["#mood", "#vibes"], ["#omg", "#yes"]]
+
 
 def _extract(pattern: str, text: str, default: str) -> str:
     m = re.search(pattern, text, re.IGNORECASE)
-    return m.group(1) if m else default
+    return m.group(1).strip() if m else default
+
+
+def _compliant_draft(text: str) -> str:
+    """Build a DIFFERENT-every-call but fully rule-compliant draft by reading the
+    rule values the prompt embeds (keyword, verbatim CTA, required hashtag, niche)."""
+    keyword = _extract(r'keyword "([^"]+)"', text, "trend")
+    cta = _extract(r'VERBATIM[^"]*?"([^"]+)"', text, "Follow for more")
+    req_tag = _extract(r'MUST be "([^"]+)"', text, "#glowroutine")
+    niche = _extract(r'for a ([^"\n.]+?) brand', text, "clean beauty").split("/")[0].strip()
+
+    # Hook: keyword up front (survives trimming) + a rotating phrase, <= 60 chars.
+    phrase = _rng.choice(_HOOK_PHRASES).replace("{niche}", niche)
+    hook = f"{keyword}: {phrase}"[:60].rstrip()
+
+    # Caption: CTA verbatim up front (survives trimming) + a rotating tail, <= 150.
+    tail = _rng.choice(_CAPTION_TAILS)
+    caption = f"{cta}. {tail}"[:150].rstrip()
+
+    # Hashtags: required tag + 2-4 rotating brand tags, deduped, 3-5 total.
+    extras = _rng.sample(_TAG_POOL, k=_rng.randint(2, 4))
+    tags = list(dict.fromkeys([req_tag, *extras]))[:5]
+    while len(tags) < 3:
+        tags.append(_rng.choice(_TAG_POOL))
+    tags = list(dict.fromkeys(tags))[:5]
+
+    return json.dumps({"hook": hook, "caption": caption, "hashtags": tags})
+
+
+def _sloppy_draft() -> str:
+    """A DIFFERENT-every-call valid-JSON post that breaks the content rules
+    (over-long hook, no CTA/keyword, too few hashtags) -> lands the score ~0.4."""
+    return json.dumps({
+        "hook": _rng.choice(_HYPE_HOOKS),
+        "caption": _rng.choice(_HYPE_CAPTIONS),
+        "hashtags": _rng.choice(_HYPE_TAGS),
+    })
 
 
 def _mock_content(text: str) -> str:
-    """Return a JSON content draft. If the prompt enumerates the rules (contains
-    'verbatim'), build a compliant draft by reading the embedded rule values;
-    otherwise return a rule-breaking 'right shape, wrong content' draft."""
-    if "verbatim" in text.lower():
-        keyword = _extract(r'keyword "([^"]+)"', text, "trend")
-        cta = _extract(r'VERBATIM[^"]*"([^"]+)"', text, "Follow for more")
-        req_tag = _extract(r'MUST be "([^"]+)"', text, "#glowroutine")
-        hook = f"{keyword}: my daily glow"[:60]
-        caption = f"{cta}. Simple steps for happy skin."[:150]
-        tags = list(dict.fromkeys([req_tag, "#skincare", "#glowup"]))[:5]
-        return json.dumps({"hook": hook, "caption": caption, "hashtags": tags})
-    # Vague prompt -> valid JSON shape but breaks the content rules.
-    return json.dumps({
-        "hook": "This amazing trend will totally change your whole routine forever and ever today",
-        "caption": "We love this trend so much! You have to try it today, it is the best thing ever.",
-        "hashtags": ["#fun", "#love"],
-    })
+    """Compliant when the prompt enumerates the rules (contains 'verbatim'),
+    sloppy when it's vague. Both paths are nondeterministic in wording."""
+    return _compliant_draft(text) if "verbatim" in text.lower() else _sloppy_draft()
+
+
+def _mock_diagnose(text: str) -> str:
+    """Weak hypothesis (shallow one-liner) vs full hypothesis (enumerates the rules).
+    The weak one deliberately omits 'verbatim'/rule tokens so the candidate it drives
+    stays weak and gets discarded by the sandbox -> the fail-then-recover moment."""
+    if "one-sentence shallow guess" in text.lower():
+        return _rng.choice([
+            "The prompt is probably a little too vague and needs to be punchier.",
+            "Looks like the tone is off — it just needs to feel more on-brand.",
+            "The posts read generic; the prompt likely needs a bit more guidance.",
+        ])
+    return ("The current prompt omits the hard constraints — the 60-char hook limit, "
+            "the 150-char caption limit, the verbatim CTA, the required trend keyword, "
+            "the 3-5 hashtag rule with the required tag, and the banned-word list — so "
+            "the model ignores them and the brand checks fail.")
 
 
 def _mock_chat(messages: list[dict], near_model: str) -> str:
     text = "\n".join(m.get("content", "") for m in messages)
     low = text.lower()
     if "return only the new prompt template" in low:        # fixer.generate
-        return _MOCK_FIX_TEMPLATE
+        # The generate prompt embeds the DIAGNOSED problem between these markers.
+        # A full diagnosis names the concrete rules; a shallow guess doesn't — so a
+        # weak hypothesis yields the weak template (-> sandbox discards it).
+        diag = _extract(r"diagnosed problem:\s*(.+?)\s*current \(failing\) prompt:",
+                        text + "\ncurrent (failing) prompt:", "")
+        strong = any(tok in diag.lower() for tok in ("verbatim", "60-char", "banned-word", "hard constraint"))
+        return _MOCK_FIX_TEMPLATE if strong else _MOCK_WEAK_FIX_TEMPLATE
     if "diagnose the root cause" in low:                    # fixer.diagnose
-        return ("The current prompt is too vague: it omits the hard constraints "
-                "(60-char hook, 150-char caption, the verbatim CTA, the trend keyword, "
-                "the 3-5 hashtag rule with the required tag, and the banned-word list), "
-                "so the model ignores them.")
+        return _mock_diagnose(text)
     if "hashtags" in low and "hook" in low:                 # worker content generation
         return _mock_content(text)
-    return f"[mock:{near_model}] deterministic offline response."
+    return f"[mock:{near_model}] offline response for {near_model}."
 
 
 def get_attestation(run_id: str) -> str | None:
