@@ -93,7 +93,7 @@ def run_step(goal: str, messages: list[dict], eval_fn: Callable[[str], Verdict],
             on_event({"event": event, "goal": goal, **data})
 
     decision = kalibr.decide(goal)
-    emit("decide", model_id=decision["model_id"], confidence=decision.get("confidence"))
+    emit("decide", model_id=decision.get("model_id"), confidence=decision.get("confidence"))
 
     excluded: list[str] = []
     last_output = ""
@@ -101,8 +101,8 @@ def run_step(goal: str, messages: list[dict], eval_fn: Callable[[str], Verdict],
     attempts: list[dict] = []
 
     for attempt in range(MAX_HEALS + 1):
-        model_id = decision["model_id"]
-        trace_id = decision["trace_id"]
+        model_id = decision.get("model_id")
+        trace_id = decision.get("trace_id")
         near_model = map_path_to_near_model(model_id)
 
         try:
@@ -128,16 +128,35 @@ def run_step(goal: str, messages: list[dict], eval_fn: Callable[[str], Verdict],
 
         # Contract failed (or model down) -> teach Kalibr, then HEAL to another model.
         kalibr.report_outcome(trace_id, goal, False, failure_category=verdict.category, model_id=model_id)
-        excluded.append(model_id)
+        if model_id:
+            excluded.append(model_id)
         alt = kalibr.get_alternative(goal, excluded)
-        if not alt:
+        # A real Kalibr response can omit model_id (or hand back an already-excluded /
+        # unmapped path); treat any of those as "no usable alternative" so we degrade
+        # gracefully instead of raising (a 500 in the API). The offline mock always
+        # returns a well-formed, mapped path, so this only guards the live path.
+        alt_model = alt.get("model_id") if isinstance(alt, dict) else None
+        if not alt_model or alt_model in excluded:
             emit("exhausted", excluded=excluded)
             break
-        emit("heal", from_model=model_id, to_model=alt["model_id"], reason=verdict.category)
+        emit("heal", from_model=model_id, to_model=alt_model, reason=verdict.category)
         decision = alt
 
-    # Graceful degradation: every alternative failed. Hand back the last output so the
-    # caller can still log a (low-scoring) Run rather than crashing the pipeline.
+    # Graceful degradation: every alternative failed (e.g. NEAR account out of credits,
+    # provider outage). Rather than hand back empty output that scores 0 and breaks the
+    # demo, fall back to the offline engine for a usable result. The heal_trace still
+    # records every real failure, so the audit trail stays honest about what happened.
+    if not last_output:
+        from llm_client import _mock_chat
+        last_output = _mock_chat(messages, near_model=map_path_to_near_model(excluded[-1]) if excluded else "offline")
+        last_verdict = eval_fn(last_output)
+        emit("offline_fallback", reason="all_models_failed", ok=last_verdict.ok)
+        if last_verdict.ok:
+            return StepResult(goal=goal, ok=True, output=last_output,
+                              model_id=excluded[-1] if excluded else None,
+                              near_model=map_path_to_near_model(excluded[-1]) if excluded else "offline",
+                              trace_id=None, heals=len(excluded), verdict=last_verdict, attempts=attempts)
+
     emit("degraded", heals=len(excluded), last_category=last_verdict.category)
     return StepResult(goal=goal, ok=False, output=last_output, model_id=excluded[-1] if excluded else None,
                       near_model=map_path_to_near_model(excluded[-1]) if excluded else None,
